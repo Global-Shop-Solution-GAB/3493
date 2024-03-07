@@ -1,0 +1,174 @@
+Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Coded by: SMC
+'Project Start Date: 12/6/2010
+
+'Hooks:
+'  BSI005-PRE-PROCESS-HOOK (000016090)
+
+'Notes:
+'  11/11/10 - This is a revision to ATG_PRINT_WO_DOC_GRP.gas.  It was changed to print router links instead of part links for a VT with TMCO
+'
+'  12/6/10 - TMCO signed quote 1958 to collate the bar code work order extended prints.  In other words, the router docs will now print with the associated work order.
+'  Also, router docs will now be printed to the printer named "GSVIEW"
+
+'F.Intrinsic.Control.If(V.Passed.009001,<>,"001811")
+'	F.Intrinsic.control.End
+
+'F.Intrinsic.Control.EndIf
+'v.passed.777777.set(1)
+
+F.ODBC.Connection!con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+V.Passed.CANCEL.Set(1)
+F.Intrinsic.Control.CallSub(Loop_wos)
+F.ODBC.Connection!con.Close
+
+Program.Sub.Main.End
+
+Program.Sub.Get_WOs_To_Print.Start
+V.Local.sQuery.Declare(String)
+V.Local.sTemp.Declare(String)
+V.Local.sJobs.Declare(String)
+V.Local.sJobs.Redim(-1,-1)
+V.Local.iUB.Declare(Long,-1)
+
+F.Intrinsic.String.Concat("select DISTINCT JOB,SUFFIX,ROUTER from BI_BAR_HEAD where terminal = '",V.Caller.Terminal,"' AND RPTID='001811' ORDER BY JOB, SUFFIX",V.Local.sQuery)
+F.ODBC.Connection!con.OpenRecordsetRO("rstWO",V.Local.sQuery)
+F.Intrinsic.Control.DoUntil(V.ODBC.con!rstWO.EOF,=,True)
+	F.Intrinsic.Math.Add(V.Local.iUB,1,V.Local.iUB)
+	F.Intrinsic.Control.If(V.Local.iUB,=,0)
+		V.Local.sJobs.Redim(0,0)
+	F.Intrinsic.Control.Else
+		V.Local.sJobs.RedimPreserve(0,V.Local.iUB)
+	F.Intrinsic.Control.EndIf
+
+	F.Intrinsic.String.Concat(V.ODBC.con!rstWO.FieldValTrim!JOB,"*!*",V.ODBC.con!rstWO.FieldValTrim!SUFFIX,"*!*",V.ODBC.con!rstWO.FieldValTrim!ROUTER,V.Local.sTemp)
+	V.Local.sJobs(v.Local.iUB).Set(V.Local.sTemp)
+
+	F.ODBC.con!rstWO.MoveNext
+F.Intrinsic.Control.Loop
+F.ODBC.con!rstWO.Close
+
+F.Intrinsic.String.Join(V.Local.sJobs,"!*!",V.Local.sJobs)
+F.Intrinsic.Variable.AddRV("sJobs",V.Local.sJobs)
+
+Program.Sub.Get_WOs_To_Print.End
+
+Program.Sub.Loop_WOs.Start
+V.Local.sJobs.Declare(String)
+V.Local.sJob.Declare(String)
+V.Local.sQuery.Declare(String)
+V.Local.iJ.Declare(Long)
+V.Local.sGroupIDs.Declare(String)
+V.Local.iLinkID.Declare(String)
+V.Local.iG.Declare(Long)
+V.Local.sTemp.Declare(String)
+V.Local.sParams.Declare(String)
+V.Local.sValues.Declare(String)
+V.Local.sPrinter.Declare(String)
+V.Local.iPos.Declare(Long)
+V.Local.sDefault.Declare(String)
+
+F.Intrinsic.Control.CallSub(Get_wos_to_print)
+F.Intrinsic.String.Split(V.Args.sJobs,"!*!",V.Local.sJobs)
+
+F.Intrinsic.Control.CallSub(Get_groups)
+F.Intrinsic.String.Split(V.Args.sGroupIDs,"*!*",V.Local.sGroupIDs)
+
+V.Local.sDefault.Set(V.Printer.DefaultPrinter)
+
+F.Intrinsic.Printer.SelectPrinterDialog
+V.Local.sPrinter.Set(V.Printer.DeviceName)
+f.Intrinsic.Printer.SetDefaultPrinter(V.Local.sPrinter)
+
+'F.Intrinsic.Debug.InvokeDebugger
+F.Intrinsic.Debug.Stop
+F.Intrinsic.Control.For(V.Local.iJ,0,V.Local.sJobs.UBound,1)
+	F.Intrinsic.String.Split(V.Local.sJobs(v.Local.iJ),"*!*",V.Local.sJob)
+	F.Intrinsic.Control.If(V.Local.sJob.UBound,=,2)
+		'Print WO
+		'__________________________________________
+		F.Intrinsic.String.Concat(V.Local.sJob(0),"!*!",V.Local.sJob(1),"!*!","1811",V.Local.sTemp)
+		F.Global.General.CallWrapperSyncBIO(900100,V.Local.sTemp)
+
+		V.Local.sParams.Set("TERMINAL*!*MATLBAR*!*OUTBAR*!*PROGRAM*!*REPORTID")
+		F.Intrinsic.String.Concat(V.Caller.Terminal,"*!**!**!*",V.Caller.Caller,"*!*001811",V.local.sValues)
+
+		F.Intrinsic.String.Split(V.Local.sParams,"*!*",V.Local.sParams)
+		F.Intrinsic.String.Split(V.Local.sValues,"*!*",V.Local.sValues)
+		
+		F.Global.BI.PrintReport("001811",3,V.Local.sParams,V.Local.sValues,V.Local.sPrinter,True)
+'		F.Intrinsic.UI.Sleep(1)
+		'__________________________________________
+
+		'Print Links
+		'__________________________________________
+		F.Global.DocumentControl.CreateReference(V.Local.sJob(2),35,V.Local.iLinkID)
+		
+		F.Intrinsic.Control.If(V.Local.iLinkID,>,0)
+			F.Intrinsic.Control.For(V.Local.iG,0,V.Local.sGroupIDs.UBound,1)
+				
+				F.Intrinsic.String.Concat("SELECT * FROM ATG_DOC_ASSOC WHERE LINK_ID = ",V.Local.iLinkID," AND GRP_ID = ",V.Local.sGroupIDs(v.Local.iG),V.Local.sQuery)
+				F.ODBC.Connection!con.OpenRecordsetRO("rstDocID",V.Local.sQuery)
+
+				F.Intrinsic.Control.DoUntil(V.ODBC.con!rstDocID.EOF,=,True)
+					F.Intrinsic.String.Right(V.ODBC.con!rstDocID.FieldValTrim!PATH,1,V.Local.stemp)
+					F.Intrinsic.Control.If(V.Local.stemp,=,"\")
+						F.Intrinsic.String.Concat(V.ODBC.con!rstDocID.FieldValTrim!PATH,V.ODBC.con!rstDocID.FieldValTrim!FILE,V.Local.stemp)
+					F.Intrinsic.Control.Else
+						F.Intrinsic.String.Concat(V.ODBC.con!rstDocID.FieldValTrim!PATH,"\",V.ODBC.con!rstDocID.FieldValTrim!FILE,V.Local.stemp)
+					F.Intrinsic.Control.endif
+						F.Intrinsic.task.ShellExecSync(V.Caller.Handle,"PRINT",V.local.sTemp,"","",5)
+					F.ODBC.con!rstDocID.MoveNext
+				F.Intrinsic.control.loop
+				F.ODBC.con!rstDocID.Close
+
+'				F.Intrinsic.UI.Sleep(1)
+			F.Intrinsic.Control.Next(V.Local.iG)
+		F.Intrinsic.Control.EndIf
+'		F.Intrinsic.UI.Sleep(2)
+		'__________________________________________
+	F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.Next(V.Local.iJ)
+
+F.Intrinsic.UI.Sleep(1)
+f.Intrinsic.Printer.SetDefaultPrinter(V.Local.sDefault)
+
+Program.Sub.Loop_WOs.End
+
+Program.Sub.Get_Groups.Start
+V.Local.sQuery.Declare(String)
+V.Local.sGroupIDs.Declare(String)
+V.Local.sGroupIDs.Redim(-1,-1)
+V.Local.iUB.Declare(Long,-1)
+
+F.ODBC.Connection!con.OpenRecordsetRO("rstGrpID","SELECT GRP_ID FROM ATG_PRINT_DOC_GRP WHERE TYPE = 1 and PRINT_FLAG = 1")
+F.Intrinsic.Control.DoUntil(V.ODBC.con!rstGrpID.EOF,=,True)
+	F.Intrinsic.Math.Add(V.Local.iUB,1,V.Local.iUB)
+	F.Intrinsic.Control.If(V.Local.iUB,=,0)
+		V.Local.sGroupIDs.Redim(0,0)
+	F.Intrinsic.Control.Else
+		V.Local.sGroupIDs.RedimPreserve(0,V.Local.iUB)
+	F.Intrinsic.Control.EndIf
+
+	V.Local.sGroupIDs(v.Local.iUB).Set(V.ODBC.con!rstGrpID.FieldValTrim!Grp_ID)
+
+	F.ODBC.con!rstGrpID.MoveNext
+F.Intrinsic.Control.Loop
+F.ODBC.con!rstGrpID.Close
+
+F.Intrinsic.String.Join(V.Local.sGroupIDs,"*!*",V.Local.sGroupIDs)
+F.Intrinsic.Variable.AddRV("sGroupIDs",V.Local.sGroupIDs)
+
+
+Program.Sub.Get_Groups.End
+
+Program.Sub.Comments.Start
+${$0$}$$}$$}$12:00:00 AM$}$False
+Program.Sub.Comments.End
